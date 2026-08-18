@@ -1,0 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #f8faf9; color: #17211c; font-family: "DM Sans", Arial, sans-serif; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+#root { min-height: 100vh; }
