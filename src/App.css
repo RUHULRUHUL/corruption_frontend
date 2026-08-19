@@ -1407,6 +1407,30 @@
     background: #f7f9f7
 }
 
+.admin-login-page {
+    min-height: calc(100vh - 76px);
+    display: grid;
+    place-items: center;
+    padding: 32px 20px;
+    background: #f7f9f7
+}
+
+.admin-login-card {
+    width: min(100%, 440px)
+}
+
+.admin-login-card h1 {
+    font: 700 30px "Playfair Display", serif;
+    margin: 12px 0 7px
+}
+
+.admin-login-card>p {
+    margin: 0 0 20px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55
+}
+
 .admin-sidebar {
     width: 232px;
     background: #123e2d;
@@ -1456,6 +1480,13 @@
 .admin-user small {
     color: #aac7b8;
     margin-top: 3px
+}
+
+.admin-logout {
+    margin: 0 0 0 auto !important;
+    padding: 5px !important;
+    color: #d9ebe1 !important;
+    font-size: 10px !important
 }
 
 .admin-content {
@@ -1512,6 +1543,11 @@
     align-items: center;
     padding: 17px;
     border-bottom: 1px solid var(--line)
+}
+
+.queue-count {
+    color: var(--muted);
+    font-size: 11px
 }
 
 .case-row {
@@ -1660,6 +1696,43 @@
     font-size: 11px;
     color: var(--orange);
     line-height: 1.4
+}
+
+.review-note {
+    width: 100%;
+    border: 1px solid #d8e1db;
+    border-radius: 8px;
+    padding: 10px;
+    resize: vertical;
+    font: inherit;
+    font-size: 12px;
+    outline-color: var(--green)
+}
+
+.review-confirm-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px
+}
+
+.review-confirm-actions>* {
+    flex: 1
+}
+
+.danger-button {
+    border: 0;
+    border-radius: 8px;
+    padding: 11px 18px;
+    background: #b93838;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer
+}
+
+.danger-button:disabled,
+.admin-actions button:disabled {
+    cursor: not-allowed;
+    opacity: .6
 }
 
 .modal-backdrop {

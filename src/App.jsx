@@ -4,6 +4,16 @@ import api from "./api/api";
 
 const navItems = ["Feed", "How it works", "My reports"];
 
+const pageFromPath = (pathname) => {
+  const route = pathname.replace(/^\/+|\/+$/g, "");
+  if (route === "admin") return "admin";
+  if (route === "how-it-works") return "how-it-works";
+  if (route === "my-reports") return "my-reports";
+  return "feed";
+};
+
+const pathFromPage = (page) => page === "feed" ? "/" : `/${page}`;
+
 const toInitials = (name) => {
   const sanitized = (name || "Anonymous citizen").trim();
   if (!sanitized) return "AC";
@@ -35,14 +45,14 @@ const normalizeReport = (report) => ({
   id: report.public_id ? `RPT-${String(report.public_id).slice(0, 5).toUpperCase()}` : `RPT-${report.id}`,
   public_id: report.public_id,
   title: report.title || "Untitled report",
-  description: report.description || "",
+  description: report.description || report.body || "",
   category: report.category || "General",
   location: report.incident_location || report.location || "Location not provided",
   date: formatDisplayDate(report.created_at || report.incident_at),
   priority: report.priority ? report.priority.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()) : "Normal",
   status: report.status ? report.status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()) : "Submitted",
-  reporter: report.is_anonymous ? "Anonymous" : (report.reporter_name || "Anonymous"),
-  evidence: report.evidence || [],
+  reporter: report.is_anonymous ? "Anonymous" : (report.reporter_name || report.author_name || "Anonymous"),
+  evidence: report.evidence || report.media || [],
 });
 
 const normalizeComplaint = (complaint) => {
@@ -76,7 +86,7 @@ function EvidencePreview({ evidence }) {
 }
 
 function App() {
-  const [page, setPage] = useState("feed");
+  const [page, setPage] = useState(() => pageFromPath(window.location.pathname));
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [showComposer, setShowComposer] = useState(false);
@@ -87,6 +97,7 @@ function App() {
   const [complaints, setComplaints] = useState([]);
   const [myReports, setMyReports] = useState([]);
   const [adminReports, setAdminReports] = useState([]);
+  const [adminToken, setAdminToken] = useState(() => localStorage.getItem("antiCorruptionAdminToken"));
   const [toast, setToast] = useState("");
 
   const notify = (message) => {
@@ -97,7 +108,17 @@ function App() {
   const changePage = (target) => {
     setPage(target);
     setSelectedReport(null);
+    window.history.pushState({}, "", pathFromPage(target));
   };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setPage(pageFromPath(window.location.pathname));
+      setSelectedReport(null);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     const loadPosts = async () => {
@@ -151,26 +172,32 @@ function App() {
   }, [page, selectedMyReport]);
 
   useEffect(() => {
-    const token = localStorage.getItem("antiCorruptionToken");
-    if (!token || page !== "admin") {
-      setAdminReports([]);
+    if (!adminToken || page !== "admin") {
       return;
     }
 
     const loadAdminReports = async () => {
       try {
-        const response = await api.get("/reports/admin", { headers: { Authorization: `Bearer ${token}` } });
+        const response = await api.get("/admin/complaints", { headers: { Authorization: `Bearer ${adminToken}` } });
         const nextReports = Array.isArray(response.data?.data) ? response.data.data.map(normalizeReport) : [];
         setAdminReports(nextReports);
-        if (!selectedReport && nextReports[0]) setSelectedReport(nextReports[0]);
+        setSelectedReport((current) => current && nextReports.some((report) => report.id === current.id) ? nextReports.find((report) => report.id === current.id) : nextReports[0] || null);
       } catch (error) {
         console.error("Failed to load staff queue", error);
         setAdminReports([]);
+        setSelectedReport(null);
       }
     };
 
     loadAdminReports();
-  }, [page, selectedReport]);
+  }, [page, adminToken]);
+
+  const handleAdminLogout = () => {
+    localStorage.removeItem("antiCorruptionAdminToken");
+    setAdminToken(null);
+    setSelectedReport(null);
+    notify("Admin session ended.");
+  };
 
   return (
     <div className="app-shell">
@@ -192,7 +219,7 @@ function App() {
       {page === "feed" && <Feed posts={posts} complaints={complaints} setPosts={setPosts} onReport={() => setShowComposer(true)} onPost={() => setShowPostComposer(true)} onAuth={() => { setAuthMode("login"); setShowAuth(true); }} notify={notify} />}
       {page === "my-reports" && <MyReports reports={myReports} selected={selectedMyReport} onSelect={setSelectedMyReport} onReport={() => setShowComposer(true)} />}
       {page === "how-it-works" && <HowItWorks />}
-      {page === "admin" && <AdminDashboard reports={adminReports} selected={selectedReport} onSelect={setSelectedReport} notify={notify} />}
+      {page === "admin" && (adminToken ? <AdminDashboard reports={adminReports} selected={selectedReport} onSelect={setSelectedReport} notify={notify} onLogout={handleAdminLogout} onReviewed={(reportId, status) => { setAdminReports((current) => current.map((report) => report.id === reportId ? { ...report, status } : report)); setSelectedReport((current) => current?.id === reportId ? { ...current, status } : current); }} /> : <AdminLogin onSuccess={(token) => { localStorage.setItem("antiCorruptionAdminToken", token); setAdminToken(token); notify("Admin login successful."); }} />)}
 
       <footer className="footer"><span>© 2026 Anti Corruption Prevent</span><span>Private reporting • Community accountability • Safer public services</span></footer>
       {showAuth && <AuthModal mode={authMode} setMode={setAuthMode} close={() => setShowAuth(false)} notify={notify} />}
@@ -501,11 +528,74 @@ function MyReports({ reports = [], selected, onSelect, onReport }) {
 function HowItWorks() { return <main className="page-content single-page"><div className="page-intro center"><p className="eyebrow">Simple and protected</p><h1>How Anti Corruption Prevent works</h1><p>We make it easier to raise concerns while keeping reporters in control.</p></div><section className="steps"><Step n="01" title="Share safely" text="Submit a report with supporting evidence. You may stay anonymous."/><Step n="02" title="Review with care" text="Authorized administrators review each report and record every decision."/><Step n="03" title="Track the outcome" text="Receive status updates as your report is reviewed, forwarded, or closed."/></section></main>; }
 function Step({ n, title, text }) { return <article className="step"><span>{n}</span><h2>{title}</h2><p>{text}</p></article>; }
 
-function AdminDashboard({ reports = [], selected, onSelect, notify }) { return <main className="admin-page"><aside className="admin-sidebar"><div className="admin-title">Administration</div>{["Overview", "Review queue", "Forwarded cases", "Team members", "Audit log"].map((x,i)=><button className={i===1?"selected":""} key={x}>{x}</button>)}<div className="admin-user"><div className="avatar avatar-blue">SA</div><div><strong>System Admin</strong><small>Administrator</small></div></div></aside><section className="admin-content"><header className="admin-header"><div><p className="eyebrow">Case management</p><h1>Review queue</h1><p>Review incoming reports and record every decision.</p></div><button className="outline-button">⇩ Export</button></header><section className="metrics"><Metric value={String(reports.length).padStart(2, "0")} label="Awaiting review"/><Metric value="08" label="High priority" alert/><Metric value="16" label="Forwarded this week"/><Metric value="4.2h" label="Average first response"/></section><section className="admin-grid"><div className="queue"><div className="queue-toolbar"><h2>Incoming reports</h2><button className="filter-button">All status ⌄</button></div>{reports.length ? reports.map(r=><button className={`case-row ${selected?.id===r.id?"case-active":""}`} key={r.public_id || r.id} onClick={()=>onSelect(r)}><div><span className="report-id">{r.id}</span><h3>{r.title}</h3><p>{r.category} · {r.location}</p></div><div><Priority value={r.priority}/><small>{r.date}</small></div></button>) : <p className="no-evidence">No reports queued for review.</p>}</div><CaseDetail report={selected || reports[0]} notify={notify}/></section></section></main>; }
+function AdminLogin({ onSuccess }) {
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    try {
+      setSubmitting(true);
+      const response = await api.post("/auth/admin/login", form);
+      const token = response.data?.data?.token;
+      if (!token) throw new Error("Admin login did not return a token.");
+      onSuccess(token);
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || requestError.message || "Admin login failed. Please check your credentials.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return <main className="admin-login-page"><form className="modal admin-login-card" onSubmit={submit}>
+    <span className="eyebrow">Restricted access</span>
+    <h1>Admin sign in</h1>
+    <p>Sign in to review community complaints and record decisions.</p>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    <label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="admin@example.com" autoComplete="username" required /></label>
+    <label>Password<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Your admin password" autoComplete="current-password" required /></label>
+    <button className="primary-button full" type="submit" disabled={submitting}>{submitting ? "Signing in..." : "Sign in as admin"}</button>
+  </form></main>;
+}
+
+function AdminDashboard({ reports = [], selected, onSelect, notify, onLogout, onReviewed }) {
+  return <main className="admin-page"><aside className="admin-sidebar"><div className="admin-title">Administration</div>{["Overview", "Review queue", "Forwarded cases", "Team members", "Audit log"].map((x,i)=><button className={i===1?"selected":""} key={x}>{x}</button>)}<div className="admin-user"><div className="avatar avatar-blue">SA</div><div><strong>System Admin</strong><small>Administrator</small></div><button className="admin-logout" onClick={onLogout}>Log out</button></div></aside><section className="admin-content"><header className="admin-header"><div><p className="eyebrow">Case management</p><h1>Review queue</h1><p>Review incoming reports and record every decision.</p></div><button className="outline-button" onClick={onLogout}>Log out</button></header><section className="metrics"><Metric value={String(reports.filter((report) => ["Submitted", "Pending"].includes(report.status)).length).padStart(2, "0")} label="Awaiting review"/><Metric value={String(reports.filter((report) => report.priority === "High" || report.priority === "Critical").length).padStart(2, "0")} label="High priority" alert/><Metric value={String(reports.filter((report) => report.status === "Forwarded").length).padStart(2, "0")} label="Forwarded cases"/><Metric value={String(reports.length).padStart(2, "0")} label="Total complaints"/></section><section className="admin-grid"><div className="queue"><div className="queue-toolbar"><h2>Incoming complaints</h2><span className="queue-count">{reports.length} total</span></div>{reports.length ? reports.map(r=><button className={`case-row ${selected?.id===r.id?"case-active":""}`} key={r.public_id || r.id} onClick={()=>onSelect(r)}><div><span className="report-id">{r.id}</span><h3>{r.title}</h3><p>{r.category} · {r.location}</p></div><div><Priority value={r.priority}/><small>{r.date}</small></div></button>) : <p className="no-evidence">No complaints available.</p>}</div><CaseDetail report={selected || reports[0]} notify={notify} onReviewed={onReviewed}/></section></section></main>;
+}
 function Metric({value,label,alert}) { return <article className="metric"><strong className={alert?"alert-text":""}>{value}</strong><span>{label}</span></article>; }
 function Priority({value}) { return <span className={`priority ${String(value || "Normal").toLowerCase()}`}>{value || "Normal"}</span>; }
 function Status({status}) { const text = String(status || "Submitted"); const className = text.toLowerCase().replace(/_/g, "-").replace(/\s+/g, "-"); return <span className={`status ${className}`}>{text}</span>; }
-function CaseDetail({report,notify}) { const [action,setAction]=useState(""); const evidence = report.evidence || []; return <aside className="case-detail"><div className="detail-top"><div><span className="report-id">{report.id}</span><Status status={report.status}/></div><button className="more">•••</button></div><h2>{report.title}</h2><div className="case-meta"><span>⌖ {report.location}</span><span>◷ {report.date}</span><span>◉ {report.reporter}</span></div><div className="detail-section"><h3>Report summary</h3><p>{report.description || "The reporter describes an incident requiring careful review. Supporting details and files should be assessed before a final decision."}</p></div><div className="detail-section"><h3>Evidence <small>({evidence.length} {evidence.length === 1 ? "file" : "files"})</small></h3>{evidence.length ? <div className="evidence-list">{evidence.map(item => <EvidencePreview key={item.id} evidence={item}/>)}</div> : <p className="no-evidence">No evidence was attached to this report.</p>}</div><div className="detail-section"><h3>Activity</h3><div className="timeline"><p><b>Report submitted</b><span>{report.date}</span></p><p><b>Awaiting administrator review</b><span>Current status</span></p></div></div><div className="admin-actions"><button className="outline-button" onClick={()=>setAction("rejected")}>Cancel</button><button className="outline-button" onClick={()=>setAction("forwarded")}>Forward</button><button className="primary-button" onClick={()=>{setAction("accepted");notify("Report accepted and the audit log was updated")}}>Accept</button></div>{action && <p className="action-note">Draft action: <b>{action}</b> — add a case note before confirming in the API.</p>}</aside>; }
+function CaseDetail({report, notify, onReviewed}) {
+  const [note, setNote] = useState("");
+  const [showCancel, setShowCancel] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const evidence = report?.evidence || [];
+
+  if (!report) return <aside className="case-detail"><p className="no-evidence">Select a complaint to view its details.</p></aside>;
+
+  const review = async (action) => {
+    if (action === "cancelled" && !note.trim()) {
+      notify("A cancellation note is required.");
+      return;
+    }
+    try {
+      setSubmitting(true);
+      const response = await api.patch(`/admin/complaints/${encodeURIComponent(report.public_id || report.id)}/review`, { action, note: note.trim() || undefined }, { headers: { Authorization: `Bearer ${localStorage.getItem("antiCorruptionAdminToken")}` } });
+      const nextStatus = response.data?.data?.status === "published" ? "Approved" : response.data?.data?.status || (action === "approved" ? "Approved" : "Cancelled");
+      onReviewed(report.id, String(nextStatus).replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()));
+      setNote("");
+      setShowCancel(false);
+      notify(`Complaint ${action === "approved" ? "approved" : "cancelled"}.`);
+    } catch (error) {
+      notify(error.response?.data?.message || "The review action could not be completed.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return <aside className="case-detail"><div className="detail-top"><div><span className="report-id">{report.id}</span><Status status={report.status}/></div><button className="more">•••</button></div><h2>{report.title}</h2><div className="case-meta"><span>⌖ {report.location}</span><span>◷ {report.date}</span><span>◉ {report.reporter}</span></div><div className="detail-section"><h3>Complaint details</h3><p>{report.description || "No description was provided."}</p></div><div className="detail-section"><h3>Evidence <small>({evidence.length} {evidence.length === 1 ? "file" : "files"})</small></h3>{evidence.length ? <div className="evidence-list">{evidence.map(item => <EvidencePreview key={item.id} evidence={item}/>)}</div> : <p className="no-evidence">No evidence was attached to this complaint.</p>}</div><div className="detail-section"><h3>Review decision</h3>{showCancel && <textarea className="review-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Explain why this complaint is being cancelled..." rows="3" required />}{!showCancel && <p className="action-note">Approve the complaint for publication or cancel it with a required note.</p>}</div><div className="admin-actions"><button className="outline-button" type="button" onClick={() => setShowCancel(true)} disabled={submitting || showCancel}>Cancel complaint</button><button className="primary-button" type="button" onClick={() => review("approved")} disabled={submitting}>{submitting ? "Saving..." : "Approve complaint"}</button></div>{showCancel && <div className="review-confirm-actions"><button className="outline-button" type="button" onClick={() => { setShowCancel(false); setNote(""); }} disabled={submitting}>Keep complaint</button><button className="danger-button" type="button" onClick={() => review("cancelled")} disabled={submitting}>{submitting ? "Saving..." : "Confirm cancellation"}</button></div>}</aside>;
+}
 
 function CommunityPostComposer({ close, notify, onSuccess }) {
   const [form, setForm] = useState({ category: "Public service", body: "" });
