@@ -45,6 +45,27 @@ const normalizeReport = (report) => ({
   evidence: report.evidence || [],
 });
 
+const normalizeComplaint = (complaint) => {
+  const bodyText = complaint.body || complaint.description || "";
+  const descriptionMatch = bodyText.match(/Description:\s*(.*)/i)?.[1];
+  const bodyMatch = bodyText.match(/Body:\s*(.*)/i)?.[1];
+  const categoryMatch = bodyText.match(/Category:\s*(.*)/i)?.[1];
+  const locationMatch = bodyText.match(/Location:\s*(.*)/i)?.[1];
+  const timeMatch = bodyText.match(/Incident time:\s*(.*)/i)?.[1];
+  const media = Array.isArray(complaint.media) ? complaint.media : [];
+
+  return {
+    id: complaint.public_id || complaint.id,
+    title: complaint.title || "Complaint",
+    description: descriptionMatch || bodyMatch || complaint.description || bodyText,
+    category: categoryMatch || complaint.category || "General",
+    location: locationMatch || complaint.location || "Bangladesh",
+    incidentTime: timeMatch || complaint.incident_time || complaint.incidentAt,
+    createdAt: complaint.created_at || complaint.updated_at,
+    media,
+  };
+};
+
 function EvidencePreview({ evidence }) {
   const source = evidence.storage_path || evidence.external_url;
   const label = evidence.original_name || `${evidence.kind.replace("_", " ")} evidence`;
@@ -61,7 +82,9 @@ function App() {
   const [showComposer, setShowComposer] = useState(false);
   const [showPostComposer, setShowPostComposer] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
+  const [selectedMyReport, setSelectedMyReport] = useState(null);
   const [posts, setPosts] = useState([]);
+  const [complaints, setComplaints] = useState([]);
   const [myReports, setMyReports] = useState([]);
   const [adminReports, setAdminReports] = useState([]);
   const [toast, setToast] = useState("");
@@ -88,7 +111,19 @@ function App() {
       }
     };
 
+    const loadComplaints = async () => {
+      try {
+        const response = await api.get("/getAllComplaints");
+        const nextComplaints = Array.isArray(response.data?.data) ? response.data.data.map(normalizeComplaint) : [];
+        setComplaints(nextComplaints);
+      } catch (error) {
+        console.error("Failed to load complaints", error);
+        setComplaints([]);
+      }
+    };
+
     loadPosts();
+    loadComplaints();
   }, []);
 
   useEffect(() => {
@@ -100,17 +135,20 @@ function App() {
 
     const loadMyReports = async () => {
       try {
-        const response = await api.get("/reports/mine", { headers: { Authorization: `Bearer ${token}` } });
-        const nextReports = Array.isArray(response.data?.data) ? response.data.data.map(normalizeReport) : [];
+        const response = await api.get("/myComplaints", { headers: { Authorization: `Bearer ${token}` } });
+        const payload = response.data?.data || response.data?.complaints || response.data || [];
+        const nextReports = Array.isArray(payload) ? payload.map(normalizeComplaint) : (payload ? [normalizeComplaint(payload)] : []);
         setMyReports(nextReports);
+        if (!selectedMyReport && nextReports[0]) setSelectedMyReport(nextReports[0]);
       } catch (error) {
-        console.error("Failed to load my reports", error);
+        console.error("Failed to load my complaints", error);
         setMyReports([]);
+        setSelectedMyReport(null);
       }
     };
 
     loadMyReports();
-  }, [page]);
+  }, [page, selectedMyReport]);
 
   useEffect(() => {
     const token = localStorage.getItem("antiCorruptionToken");
@@ -151,8 +189,8 @@ function App() {
         </div>
       </header>
 
-      {page === "feed" && <Feed posts={posts} setPosts={setPosts} onReport={() => setShowComposer(true)} onPost={() => setShowPostComposer(true)} onAuth={() => { setAuthMode("login"); setShowAuth(true); }} notify={notify} />}
-      {page === "my-reports" && <MyReports reports={myReports} onReport={() => setShowComposer(true)} />}
+      {page === "feed" && <Feed posts={posts} complaints={complaints} setPosts={setPosts} onReport={() => setShowComposer(true)} onPost={() => setShowPostComposer(true)} onAuth={() => { setAuthMode("login"); setShowAuth(true); }} notify={notify} />}
+      {page === "my-reports" && <MyReports reports={myReports} selected={selectedMyReport} onSelect={setSelectedMyReport} onReport={() => setShowComposer(true)} />}
       {page === "how-it-works" && <HowItWorks />}
       {page === "admin" && <AdminDashboard reports={adminReports} selected={selectedReport} onSelect={setSelectedReport} notify={notify} />}
 
@@ -165,20 +203,144 @@ function App() {
   );
 }
 
-function Feed({ posts, onReport, onPost, onAuth, notify }) {
+function Feed({ posts, complaints = [], onReport, onPost, onAuth, notify }) {
+  const totalPosts = (posts?.length || 0) + (complaints?.length || 0);
+  const resolvedCount = complaints.filter(c => c.status?.toLowerCase().includes("resolved") || c.status?.toLowerCase().includes("accepted")).length;
+  const userCount = new Set([
+    ...(posts?.map(p => p.id) || []),
+    ...(complaints?.map(c => c.id) || [])
+  ]).size;
+
   return <main className="page-content feed-layout">
-    <aside className="side-card help-card"><div className="icon-circle">?</div><h3>Need to report an incident?</h3><p>Your report stays private unless you choose to make it public.</p><button className="primary-button full" onClick={onReport}>Report safely</button><button className="link-button">Learn how reporting works →</button></aside>
+    <aside className="side-card stats-card">
+      <div className="stats-grid">
+        <div className="stat-item">
+          <div className="stat-number">{totalPosts}</div>
+          <div className="stat-label">Total Posts</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-number">{resolvedCount}</div>
+          <div className="stat-label">Resolved</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-number">{userCount}</div>
+          <div className="stat-label">Users</div>
+        </div>
+      </div>
+      <button className="primary-button full" onClick={onReport}>+ Report</button>
+    </aside>
     <section className="feed-column">
-      <section className="hero"><div><p className="eyebrow">A safer way to speak up</p><h1>Better public services start with accountable voices.</h1><p>Share experiences, support your community, and report concerns securely.</p><button className="primary-button" onClick={onReport}>Submit a report <span>→</span></button></div><div className="hero-shape"><span>✦</span><i></i><b></b></div></section>
       <section className="feed-heading"><div><h2>Community feed</h2><p>Public updates from citizens and verified organizations</p></div><button className="filter-button">⌄ Latest</button></section>
-      <section className="post-composer"><div className="avatar avatar-blue">Y</div><button onClick={() => {
-        const token = localStorage.getItem("antiCorruptionToken");
-        if (token) onPost(); else onAuth();
-      }}>Share an update with your community...</button></section>
+      {complaints.length > 0 && (
+        <div className="complaints-list">
+          {complaints.map((complaint) => <ComplaintCard key={complaint.id} complaint={complaint} />)}
+        </div>
+      )}
       {posts.map((post) => <Post key={post.id} post={post} notify={notify} />)}
     </section>
     <aside className="right-rail"><section className="side-card"><p className="eyebrow">Your impact</p><h3>Every report matters.</h3><div className="stat"><strong>1,248</strong><span>reports submitted safely</span></div><div className="stat"><strong>312</strong><span>cases being reviewed</span></div><div className="stat"><strong>89%</strong><span>of citizens feel safer speaking up</span></div></section><section className="side-card topics"><h3>Explore topics</h3>{["Public service", "Procurement", "Bribery", "Safety & rights"].map(t => <button key={t}># {t}</button>)}</section></aside>
   </main>;
+}
+
+function ComplaintCard({ complaint }) {
+  const [liked, setLiked] = useState(false);
+  const [commenting, setCommenting] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [selectedImage, setSelectedImage] = useState(null);
+  const media = complaint.media || [];
+  const baseMediaUrl = "http://localhost:3000/";
+  const getSource = (item) => {
+    const cleanStoragePath = item.storage_path ? String(item.storage_path).replace(/^\/+/, "") : "";
+    return cleanStoragePath ? `${baseMediaUrl}${cleanStoragePath.startsWith("uploads/") ? cleanStoragePath : `uploads/${cleanStoragePath}`}` : item.external_url;
+  };
+  const imageItems = media.filter((item) => item.kind === "image" || String(item.mime_type || "").startsWith("image/")).map((item, index) => ({
+    source: getSource(item),
+    name: item.original_name,
+    key: item.id || item.original_name || item.external_url || item.storage_path || index,
+  }));
+
+  const renderMedia = (item) => {
+    const source = getSource(item);
+    const mime = item.mime_type || "";
+    const kind = item.kind || "document";
+    const youtubeId = source?.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/)?.[1];
+
+    if (youtubeId) {
+      return <div className="complaint-media complaint-video"><iframe src={`https://www.youtube-nocookie.com/embed/${youtubeId}`} title={complaint.title} allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowFullScreen /></div>;
+    }
+
+    if (kind === "image" || mime.startsWith("image/")) {
+      const imageIndex = imageItems.findIndex((image) => image.source === source && image.name === item.original_name);
+      return <button className="complaint-media complaint-image" type="button" onClick={() => setSelectedImage({ images: imageItems, index: imageIndex, title: complaint.title })} aria-label={`View ${item.original_name || complaint.title} in detail`}><img src={source} alt={item.original_name || complaint.title} /><span className="image-expand-hint">View image</span></button>;
+    }
+
+    if (kind === "video" || mime.startsWith("video/")) {
+      return <div className="complaint-media complaint-video"><video controls src={source} /></div>;
+    }
+
+    if (source && (mime.includes("pdf") || String(source).toLowerCase().endsWith(".pdf"))) {
+      return <div className="complaint-media complaint-file"><a href={source} target="_blank" rel="noreferrer">Open PDF: {item.original_name || "attachment.pdf"}</a></div>;
+    }
+
+    if (source) {
+      return <div className="complaint-media complaint-file"><a href={source} target="_blank" rel="noreferrer">Open file: {item.original_name || item.kind || "attachment"}</a></div>;
+    }
+
+    return null;
+  };
+
+  const handleShare = async () => {
+    const shareText = `${complaint.title}\n${complaint.description}`;
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(shareText);
+    }
+    alert("Post link copied to clipboard");
+  };
+
+  return <article className="complaint-card">
+    <div className="complaint-header">
+      <div>
+        <span className="complaint-tag">{complaint.category}</span>
+        <h3>{complaint.title}</h3>
+      </div>
+      <small>{complaint.location}</small>
+    </div>
+    <p className="complaint-description">{complaint.description}</p>
+    {media.length > 0 && <div className="complaint-media-list">{media.map((item) => <div key={`${complaint.id}-${item.id || item.original_name || item.external_url || item.storage_path}`}>{renderMedia(item)}</div>)}</div>}
+    {complaint.incidentTime && <p className="complaint-meta">Incident time: {formatDisplayDate(complaint.incidentTime)}</p>}
+    <div className="complaint-actions">
+      <button className={liked ? "liked" : ""} onClick={() => setLiked(!liked)}>♡ {liked ? "Supported" : "Support"}</button>
+      <button onClick={() => setCommenting(!commenting)}>◌ Comment</button>
+      <button onClick={handleShare}>↗ Share</button>
+    </div>
+    {commenting && <div className="comment-box complaint-comment-box"><input value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="Write a respectful comment…" /><button onClick={() => { setCommenting(false); setCommentText(""); }}>Send</button></div>}
+    {selectedImage && <ImageDetailModal image={selectedImage} close={() => setSelectedImage(null)} />}
+  </article>;
+}
+
+function ImageDetailModal({ image, close }) {
+  const [currentIndex, setCurrentIndex] = useState(image.index || 0);
+  const currentImage = image.images[currentIndex] || image.images[0];
+  const hasMultipleImages = image.images.length > 1;
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [close]);
+
+  return <div className="image-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <section className="image-detail-modal" role="dialog" aria-modal="true" aria-label={`${image.title} image details`}>
+      <div className="image-detail-header">
+        <div><span className="eyebrow">Evidence image</span><h2>{currentImage.name || image.title}</h2></div>
+        <button className="close-button" type="button" onClick={close} aria-label="Close image preview">✕</button>
+      </div>
+      <div className="image-detail-frame"><img src={currentImage.source} alt={currentImage.name || image.title} />{hasMultipleImages && <><button className="image-gallery-control previous" type="button" onClick={() => setCurrentIndex((currentIndex - 1 + image.images.length) % image.images.length)} aria-label="View previous image">‹</button><button className="image-gallery-control next" type="button" onClick={() => setCurrentIndex((currentIndex + 1) % image.images.length)} aria-label="View next image">›</button></>}</div>
+      {hasMultipleImages && <p className="image-gallery-count">{currentIndex + 1} of {image.images.length}</p>}
+    </section>
+  </div>;
 }
 
 function Post({ post, notify }) {
@@ -187,7 +349,154 @@ function Post({ post, notify }) {
   return <article className="post-card"><header><div className={`avatar avatar-${post.tone}`}>{post.initials}</div><div><strong>{post.name}</strong><p>{post.time} · {post.place}</p></div><button className="more">•••</button></header><span className="topic-tag">{post.category}</span><p className="post-body">{post.body}</p><div className="post-footer"><span>{liked ? post.reactions + 1 : post.reactions} supporters</span><span>{post.comments} comments</span></div><div className="post-actions"><button className={liked ? "liked" : ""} onClick={() => setLiked(!liked)}>♡ {liked ? "Supported" : "Support"}</button><button onClick={() => setCommenting(!commenting)}>◌ Comment</button><button onClick={() => notify("Share link copied to clipboard")}>↗ Share</button></div>{commenting && <div className="comment-box"><input placeholder="Write a respectful comment…"/><button onClick={() => { setCommenting(false); notify("Your comment was added"); }}>Send</button></div>}</article>;
 }
 
-function MyReports({ reports = [], onReport }) { return <main className="page-content single-page"><div className="page-intro"><p className="eyebrow">Personal workspace</p><h1>My reports</h1><p>Follow each case without exposing your identity to the public.</p><button className="primary-button" onClick={onReport}>+ New report</button></div><section className="report-list">{reports.length ? reports.map(r => <article key={r.public_id || r.id} className="report-row"><div><span className="report-id">{r.id}</span><h3>{r.title}</h3><p>{r.category} · {r.location} · {r.date}</p></div><Status status={r.status}/><button className="outline-button">View details</button></article>) : <p className="no-evidence">No reports yet. Submit your first incident to see it here.</p>}</section></main>; }
+function MyReports({ reports = [], selected, onSelect, onReport }) {
+  const activeReport = selected || reports[0] || null;
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [uploadForm, setUploadForm] = useState({ title: "", description: "", category: "General", location: "" });
+  const [uploading, setUploading] = useState(false);
+
+  const handleUploadChange = (e) => {
+    setUploadForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleUploadSubmit = async (e) => {
+    e.preventDefault();
+    if (!uploadForm.title.trim() || !uploadForm.description.trim()) {
+      alert("Please fill in all fields");
+      return;
+    }
+
+    const token = localStorage.getItem("antiCorruptionToken");
+    if (!token) {
+      alert("Please sign in first");
+      return;
+    }
+
+    try {
+      setUploading(true);
+      const response = await api.post("/submitComplain", {
+        title: uploadForm.title,
+        description: uploadForm.description,
+        category: uploadForm.category,
+        location: uploadForm.location,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      
+      alert("Report submitted successfully!");
+      setShowUploadForm(false);
+      setUploadForm({ title: "", description: "", category: "General", location: "" });
+      onReport();
+    } catch (error) {
+      console.error("Upload failed", error);
+      alert("Failed to submit report");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return <main className="page-content single-page report-layout">
+    <div className="page-intro">
+      <p className="eyebrow">Personal workspace</p>
+      <h1>My reports</h1>
+      <p>Follow each case without exposing your identity to the public.</p>
+      <button className="primary-button" onClick={() => setShowUploadForm(!showUploadForm)}>+ New report</button>
+    </div>
+
+    {showUploadForm && (
+      <div className="upload-form-card">
+        <div className="upload-form-header">
+          <h3>Submit a new report</h3>
+          <button className="close-button" onClick={() => setShowUploadForm(false)}>✕</button>
+        </div>
+        <form onSubmit={handleUploadSubmit}>
+          <div className="form-group">
+            <label>Title</label>
+            <input type="text" name="title" value={uploadForm.title} onChange={handleUploadChange} placeholder="Brief title of the incident" required />
+          </div>
+          <div className="form-group">
+            <label>Category</label>
+            <select name="category" value={uploadForm.category} onChange={handleUploadChange}>
+              <option value="General">General</option>
+              <option value="Bribery">Bribery</option>
+              <option value="Procurement">Procurement</option>
+              <option value="Public service">Public service</option>
+              <option value="Safety & rights">Safety & rights</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Location</label>
+            <input type="text" name="location" value={uploadForm.location} onChange={handleUploadChange} placeholder="Where did this happen?" />
+          </div>
+          <div className="form-group">
+            <label>Description</label>
+            <textarea name="description" value={uploadForm.description} onChange={handleUploadChange} placeholder="Describe what happened in detail..." rows="6" required></textarea>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="outline-button" onClick={() => setShowUploadForm(false)}>Cancel</button>
+            <button type="submit" className="primary-button" disabled={uploading}>{uploading ? "Submitting..." : "Submit Report"}</button>
+          </div>
+        </form>
+      </div>
+    )}
+
+    <div className="my-report-panel">
+      <section className="report-list">
+        {reports.length ? reports.map((report) => (
+          <button key={report.public_id || report.id} className={`report-row ${activeReport?.id === report.id ? "report-row-active" : ""}`} onClick={() => onSelect(report)}>
+            <div className="report-row-copy">
+              <span className="report-id">{report.id}</span>
+              <h3>{report.title}</h3>
+              <p>{report.category} · {report.location} · {report.createdAt ? formatDisplayDate(report.createdAt) : report.date}</p>
+            </div>
+            <Status status={report.status || "Submitted"} />
+          </button>
+        )) : <p className="no-evidence">No reports yet. Submit your first incident to see it here.</p>}
+      </section>
+
+      <aside className="report-detail-card">
+        {activeReport ? (
+          <>
+            <div className="detail-top">
+              <span className="report-id">{activeReport.id}</span>
+              <Status status={activeReport.status || "Submitted"} />
+            </div>
+            <h2>{activeReport.title}</h2>
+            <div className="case-meta">
+              <span>⌖ {activeReport.location}</span>
+              <span>◷ {activeReport.createdAt ? formatDisplayDate(activeReport.createdAt) : activeReport.date}</span>
+            </div>
+            <div className="detail-section">
+              <h3>Category</h3>
+              <p>{activeReport.category}</p>
+            </div>
+            <div className="detail-section">
+              <h3>Details</h3>
+              <p>{activeReport.description || "No description was added for this report."}</p>
+            </div>
+            {activeReport.media?.length > 0 && (
+              <div className="detail-section">
+                <h3>Attachments</h3>
+                <div className="evidence-list">
+                  {activeReport.media.map((item, index) => (
+                    <a key={`${activeReport.id}-${item.id || item.original_name || index}`} className="evidence-file" href={item.external_url || `${"http://localhost:3000/"}${String(item.storage_path || "").replace(/^\/+/, "")}`} target="_blank" rel="noreferrer">
+                      <span>{item.kind === "image" ? "▣" : "▤"}</span>
+                      <div>
+                        <b>{item.original_name || item.kind || "Attachment"}</b>
+                        <small>{item.mime_type || item.kind || "file"}</small>
+                      </div>
+                      <em>Open</em>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="no-evidence">Select a report to view its details.</p>
+        )}
+      </aside>
+    </div>
+  </main>;
+}
 
 function HowItWorks() { return <main className="page-content single-page"><div className="page-intro center"><p className="eyebrow">Simple and protected</p><h1>How Anti Corruption Prevent works</h1><p>We make it easier to raise concerns while keeping reporters in control.</p></div><section className="steps"><Step n="01" title="Share safely" text="Submit a report with supporting evidence. You may stay anonymous."/><Step n="02" title="Review with care" text="Authorized administrators review each report and record every decision."/><Step n="03" title="Track the outcome" text="Receive status updates as your report is reviewed, forwarded, or closed."/></section></main>; }
 function Step({ n, title, text }) { return <article className="step"><span>{n}</span><h2>{title}</h2><p>{text}</p></article>; }
