@@ -206,10 +206,9 @@ function App() {
           <span className="brand-mark">◈</span>
           <span>Anti Corruption <span>Prevent</span></span>
         </button>
-        <nav className="main-nav" aria-label="Primary navigation">
+        {page !== "admin" && <nav className="main-nav" aria-label="Primary navigation">
           {navItems.map((item) => <button key={item} className={page === item.toLowerCase().replace(" ", "-") ? "active" : ""} onClick={() => changePage(item.toLowerCase().replace(" ", "-"))}>{item}</button>)}
-          <button className={page === "admin" ? "active" : ""} onClick={() => changePage("admin")}>Admin</button>
-        </nav>
+        </nav>}
         <div className="top-actions">
           <button className="text-button" onClick={() => { setAuthMode("login"); setShowAuth(true); }}>Sign in</button>
           <button className="primary-button small" onClick={() => { setAuthMode("register"); setShowAuth(true); }}>Create account</button>
