@@ -211,7 +211,7 @@ function App() {
         </nav>}
         <div className="top-actions">
           <button className="text-button" onClick={() => { setAuthMode("login"); setShowAuth(true); }}>Sign in</button>
-          <button className="primary-button small" onClick={() => { setAuthMode("register"); setShowAuth(true); }}>Create account</button>
+          {page !== "admin" && <button className="primary-button small" onClick={() => { setAuthMode("register"); setShowAuth(true); }}>Create account</button>}
         </div>
       </header>
 
