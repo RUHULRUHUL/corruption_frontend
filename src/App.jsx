@@ -29,7 +29,9 @@ const formatDisplayDate = (value) => {
 };
 
 const normalizePost = (post) => ({
-  id: post.public_id || post.id,
+  id: post.public_id || post.id || post.postId,
+  postId: post.id || post.postId || post.public_id,
+  public_id: post.public_id,
   name: post.author_name || "Anonymous citizen",
   initials: toInitials(post.author_name || "Anonymous citizen"),
   time: formatDisplayDate(post.created_at),
@@ -38,7 +40,8 @@ const normalizePost = (post) => ({
   body: post.body || "",
   reactions: Number(post.reaction_count || 0),
   comments: Number(post.comment_count || 0),
-  tone: ["blue", "green", "purple", "orange"][Math.abs((post.id || post.public_id || "").split("").reduce((total, char) => total + char.charCodeAt(0), 0)) % 4],
+  status: post.status || "Pending",
+  tone: ["blue", "green", "purple", "orange"][Math.abs(String(post.id || post.public_id || "").split("").reduce((total, char) => total + char.charCodeAt(0), 0)) % 4],
 });
 
 const normalizeReport = (report) => ({
@@ -97,7 +100,9 @@ function App() {
   const [complaints, setComplaints] = useState([]);
   const [myReports, setMyReports] = useState([]);
   const [adminReports, setAdminReports] = useState([]);
+  const [adminPosts, setAdminPosts] = useState([]);
   const [adminToken, setAdminToken] = useState(() => localStorage.getItem("antiCorruptionAdminToken"));
+  const [adminId, setAdminId] = useState(() => Number(localStorage.getItem("antiCorruptionAdminId")) || 5);
   const [toast, setToast] = useState("");
 
   const notify = (message) => {
@@ -189,7 +194,19 @@ function App() {
       }
     };
 
+    const loadAdminPosts = async () => {
+      try {
+        const response = await api.get("/admin/posts", { headers: { Authorization: `Bearer ${adminToken}` } });
+        const payload = response.data?.data || response.data?.posts || response.data || [];
+        setAdminPosts(Array.isArray(payload) ? payload.map(normalizePost) : []);
+      } catch (error) {
+        console.error("Failed to load post review queue", error);
+        setAdminPosts([]);
+      }
+    };
+
     loadAdminReports();
+    loadAdminPosts();
   }, [page, adminToken]);
 
   const handleAdminLogout = () => {
@@ -218,7 +235,7 @@ function App() {
       {page === "feed" && <Feed posts={posts} complaints={complaints} setPosts={setPosts} onReport={() => setShowComposer(true)} onPost={() => setShowPostComposer(true)} onAuth={() => { setAuthMode("login"); setShowAuth(true); }} notify={notify} />}
       {page === "my-reports" && <MyReports reports={myReports} selected={selectedMyReport} onSelect={setSelectedMyReport} onReport={() => setShowComposer(true)} />}
       {page === "how-it-works" && <HowItWorks />}
-      {page === "admin" && (adminToken ? <AdminDashboard reports={adminReports} selected={selectedReport} onSelect={setSelectedReport} notify={notify} onLogout={handleAdminLogout} onReviewed={(reportId, status) => { setAdminReports((current) => current.map((report) => report.id === reportId ? { ...report, status } : report)); setSelectedReport((current) => current?.id === reportId ? { ...current, status } : current); }} /> : <AdminLogin onSuccess={(token) => { localStorage.setItem("antiCorruptionAdminToken", token); setAdminToken(token); notify("Admin login successful."); }} />)}
+      {page === "admin" && (adminToken ? <AdminDashboard reports={adminReports} posts={adminPosts} adminId={adminId} selected={selectedReport} onSelect={setSelectedReport} notify={notify} onLogout={handleAdminLogout} onReviewed={(reportId, status) => { setAdminReports((current) => current.map((report) => report.id === reportId ? { ...report, status } : report)); setSelectedReport((current) => current?.id === reportId ? { ...current, status } : current); }} onPostReviewed={(postId, status) => { const matchesPost = (post) => String(post.postId) === String(postId) || String(post.id) === String(postId); setAdminPosts((current) => current.map((post) => matchesPost(post) ? { ...post, status } : post)); setPosts((current) => current.map((post) => matchesPost(post) ? { ...post, status } : post)); }} /> : <AdminLogin onSuccess={(token, nextAdminId) => { localStorage.setItem("antiCorruptionAdminToken", token); if (nextAdminId) { localStorage.setItem("antiCorruptionAdminId", String(nextAdminId)); setAdminId(Number(nextAdminId)); } setAdminToken(token); notify("Admin login successful."); }} />)}
 
       <footer className="footer"><span>© 2026 Anti Corruption Prevent</span><span>Private reporting • Community accountability • Safer public services</span></footer>
       {showAuth && <AuthModal mode={authMode} setMode={setAuthMode} close={() => setShowAuth(false)} notify={notify} />}
@@ -540,7 +557,7 @@ function AdminLogin({ onSuccess }) {
       const response = await api.post("/auth/admin/login", form);
       const token = response.data?.data?.token;
       if (!token) throw new Error("Admin login did not return a token.");
-      onSuccess(token);
+      onSuccess(token, response.data?.data?.adminId || response.data?.data?.admin?.id || response.data?.data?.user?.id);
     } catch (requestError) {
       setError(requestError.response?.data?.message || requestError.message || "Admin login failed. Please check your credentials.");
     } finally {
@@ -559,32 +576,61 @@ function AdminLogin({ onSuccess }) {
   </form></main>;
 }
 
-function AdminDashboard({ reports = [], selected, onSelect, notify, onLogout, onReviewed }) {
-  return <main className="admin-page"><aside className="admin-sidebar"><div className="admin-title">Administration</div>{["Overview", "Review queue", "Forwarded cases", "Team members", "Audit log"].map((x,i)=><button className={i===1?"selected":""} key={x}>{x}</button>)}<div className="admin-user"><div className="avatar avatar-blue">SA</div><div><strong>System Admin</strong><small>Administrator</small></div><button className="admin-logout" onClick={onLogout}>Log out</button></div></aside><section className="admin-content"><header className="admin-header"><div><p className="eyebrow">Case management</p><h1>Review queue</h1><p>Review incoming reports and record every decision.</p></div><button className="outline-button" onClick={onLogout}>Log out</button></header><section className="metrics"><Metric value={String(reports.filter((report) => ["Submitted", "Pending"].includes(report.status)).length).padStart(2, "0")} label="Awaiting review"/><Metric value={String(reports.filter((report) => report.priority === "High" || report.priority === "Critical").length).padStart(2, "0")} label="High priority" alert/><Metric value={String(reports.filter((report) => report.status === "Forwarded").length).padStart(2, "0")} label="Forwarded cases"/><Metric value={String(reports.length).padStart(2, "0")} label="Total complaints"/></section><section className="admin-grid"><div className="queue"><div className="queue-toolbar"><h2>Incoming complaints</h2><span className="queue-count">{reports.length} total</span></div>{reports.length ? reports.map(r=><button className={`case-row ${selected?.id===r.id?"case-active":""}`} key={r.public_id || r.id} onClick={()=>onSelect(r)}><div><span className="report-id">{r.id}</span><h3>{r.title}</h3><p>{r.category} · {r.location}</p></div><div><Priority value={r.priority}/><small>{r.date}</small></div></button>) : <p className="no-evidence">No complaints available.</p>}</div><CaseDetail report={selected || reports[0]} notify={notify} onReviewed={onReviewed}/></section></section></main>;
+function AdminDashboard({ reports = [], posts = [], adminId, selected, onSelect, notify, onLogout, onReviewed, onPostReviewed }) {
+  return <main className="admin-page"><aside className="admin-sidebar"><div className="admin-title">Administration</div>{["Overview", "Review queue", "Forwarded cases", "Team members", "Audit log"].map((x,i)=><button className={i===1?"selected":""} key={x}>{x}</button>)}<div className="admin-user"><div className="avatar avatar-blue">SA</div><div><strong>System Admin</strong><small>Administrator</small></div><button className="admin-logout" onClick={onLogout}>Log out</button></div></aside><section className="admin-content"><header className="admin-header"><div><p className="eyebrow">Case management</p><h1>Review queue</h1><p>Review incoming reports and record every decision.</p></div><button className="outline-button" onClick={onLogout}>Log out</button></header><section className="metrics"><Metric value={String(reports.filter((report) => ["Submitted", "Pending"].includes(report.status)).length).padStart(2, "0")} label="Awaiting review"/><Metric value={String(reports.filter((report) => report.priority === "High" || report.priority === "Critical").length).padStart(2, "0")} label="High priority"/><Metric value={String(reports.filter((report) => report.status === "Forwarded").length).padStart(2, "0")} label="Forwarded cases"/><Metric value={String(reports.length).padStart(2, "0")} label="Total complaints"/></section><section className="admin-grid"><div className="queue"><div className="queue-toolbar"><h2>Incoming complaints</h2><span className="queue-count">{reports.length} total</span></div>{reports.length ? reports.map(r=><button className={`case-row ${selected?.id===r.id?"case-active":""}`} key={r.public_id || r.id} onClick={()=>onSelect(r)}><div><span className="report-id">{r.id}</span><h3>{r.title}</h3><p>{r.category} · {r.location}</p></div><div><Priority value={r.priority}/><small>{r.date}</small></div></button>) : <p className="no-evidence">No complaints available.</p>}</div><CaseDetail report={selected || reports[0]} notify={notify} onReviewed={onReviewed}/></section><PostReviewQueue posts={posts} adminId={adminId} notify={notify} onReviewed={onPostReviewed}/></section></main>;
+}
+
+function PostReviewQueue({ posts = [], adminId, notify, onReviewed }) {
+  const [filter, setFilter] = useState("all");
+  const normalizedFilter = filter.toLowerCase();
+  const filteredPosts = posts.filter((post) => normalizedFilter === "all" || String(post.status || "pending").toLowerCase() === normalizedFilter);
+
+  return <section className="post-review-section"><div className="queue-toolbar"><div><h2>Community posts</h2><p className="queue-count">Approve or cancel posts and track their current status.</p></div><div className="review-filters" role="group" aria-label="Filter community posts"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>All <span>{posts.length}</span></button><button className={filter === "approved" ? "active" : ""} onClick={() => setFilter("approved")}>Approved <span>{posts.filter((post) => String(post.status).toLowerCase() === "approved").length}</span></button><button className={filter === "cancelled" ? "active" : ""} onClick={() => setFilter("cancelled")}>Cancelled <span>{posts.filter((post) => String(post.status).toLowerCase() === "cancelled").length}</span></button></div></div>{filteredPosts.length ? <div className="post-review-list">{filteredPosts.map((post) => <PostReviewRow key={post.postId} post={post} adminId={adminId} notify={notify} onReviewed={onReviewed}/>)}</div> : <p className="no-evidence">No {filter === "all" ? "community posts" : `${filter} posts`} found.</p>}</section>;
+}
+
+function PostReviewRow({ post, adminId, notify, onReviewed }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const status = String(post.status || "Pending");
+
+  const review = async (action) => {
+    try {
+      setSubmitting(true);
+      const response = await api.post("/admin/posts/review", { postId: post.postId, action, adminId }, { headers: { Authorization: `Bearer ${localStorage.getItem("antiCorruptionAdminToken")}` } });
+      const returnedStatus = response.data?.data?.status || response.data?.status;
+      const nextStatus = returnedStatus || action;
+      onReviewed(post.postId, String(nextStatus).replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()));
+      setConfirmAction(null);
+      notify(`Post ${action === "approved" ? "approved" : "cancelled"}.`);
+    } catch (error) {
+      notify(error.response?.data?.message || "The post review action could not be completed.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return <article className="post-review-row"><div className={`avatar avatar-${post.tone}`}>{post.initials}</div><div className="post-review-copy"><div className="post-review-heading"><div><strong>{post.name}</strong><small>{post.time} · {post.place}</small></div><Status status={status}/></div><span className="topic-tag">{post.category}</span><p>{post.body}</p></div><div className="post-review-actions"><button className="danger-button" onClick={() => setConfirmAction("cancelled")} disabled={submitting || status.toLowerCase() === "cancelled"}>Cancel</button><button className="primary-button" onClick={() => setConfirmAction("approved")} disabled={submitting || status.toLowerCase() === "approved"}>{submitting ? "Saving..." : "Approve"}</button></div>{confirmAction && <ReviewWarningDialog action={confirmAction} subject="post" submitting={submitting} close={() => setConfirmAction(null)} confirm={() => review(confirmAction)} />}</article>;
 }
 function Metric({value,label,alert}) { return <article className="metric"><strong className={alert?"alert-text":""}>{value}</strong><span>{label}</span></article>; }
 function Priority({value}) { return <span className={`priority ${String(value || "Normal").toLowerCase()}`}>{value || "Normal"}</span>; }
 function Status({status}) { const text = String(status || "Submitted"); const className = text.toLowerCase().replace(/_/g, "-").replace(/\s+/g, "-"); return <span className={`status ${className}`}>{text}</span>; }
 function CaseDetail({report, notify, onReviewed}) {
   const [note, setNote] = useState("");
-  const [showCancel, setShowCancel] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const evidence = report?.evidence || [];
 
   if (!report) return <aside className="case-detail"><p className="no-evidence">Select a complaint to view its details.</p></aside>;
 
   const review = async (action) => {
-    if (action === "cancelled" && !note.trim()) {
-      notify("A cancellation note is required.");
-      return;
-    }
+    if (action === "cancelled" && !note.trim()) return;
     try {
       setSubmitting(true);
       const response = await api.patch(`/admin/complaints/${encodeURIComponent(report.public_id || report.id)}/review`, { action, note: note.trim() || undefined }, { headers: { Authorization: `Bearer ${localStorage.getItem("antiCorruptionAdminToken")}` } });
       const nextStatus = response.data?.data?.status === "published" ? "Approved" : response.data?.data?.status || (action === "approved" ? "Approved" : "Cancelled");
       onReviewed(report.id, String(nextStatus).replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()));
       setNote("");
-      setShowCancel(false);
+      setConfirmAction(null);
       notify(`Complaint ${action === "approved" ? "approved" : "cancelled"}.`);
     } catch (error) {
       notify(error.response?.data?.message || "The review action could not be completed.");
@@ -593,7 +639,12 @@ function CaseDetail({report, notify, onReviewed}) {
     }
   };
 
-  return <aside className="case-detail"><div className="detail-top"><div><span className="report-id">{report.id}</span><Status status={report.status}/></div><button className="more">•••</button></div><h2>{report.title}</h2><div className="case-meta"><span>⌖ {report.location}</span><span>◷ {report.date}</span><span>◉ {report.reporter}</span></div><div className="detail-section"><h3>Complaint details</h3><p>{report.description || "No description was provided."}</p></div><div className="detail-section"><h3>Evidence <small>({evidence.length} {evidence.length === 1 ? "file" : "files"})</small></h3>{evidence.length ? <div className="evidence-list">{evidence.map(item => <EvidencePreview key={item.id} evidence={item}/>)}</div> : <p className="no-evidence">No evidence was attached to this complaint.</p>}</div><div className="detail-section"><h3>Review decision</h3>{showCancel && <textarea className="review-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Explain why this complaint is being cancelled..." rows="3" required />}{!showCancel && <p className="action-note">Approve the complaint for publication or cancel it with a required note.</p>}</div><div className="admin-actions"><button className="outline-button" type="button" onClick={() => setShowCancel(true)} disabled={submitting || showCancel}>Cancel complaint</button><button className="primary-button" type="button" onClick={() => review("approved")} disabled={submitting}>{submitting ? "Saving..." : "Approve complaint"}</button></div>{showCancel && <div className="review-confirm-actions"><button className="outline-button" type="button" onClick={() => { setShowCancel(false); setNote(""); }} disabled={submitting}>Keep complaint</button><button className="danger-button" type="button" onClick={() => review("cancelled")} disabled={submitting}>{submitting ? "Saving..." : "Confirm cancellation"}</button></div>}</aside>;
+  return <aside className="case-detail"><div className="detail-top"><div><span className="report-id">{report.id}</span><Status status={report.status}/></div><button className="more">•••</button></div><h2>{report.title}</h2><div className="case-meta"><span>⌖ {report.location}</span><span>◷ {report.date}</span><span>◉ {report.reporter}</span></div><div className="detail-section"><h3>Complaint details</h3><p>{report.description || "No description was provided."}</p></div><div className="detail-section"><h3>Evidence <small>({evidence.length} {evidence.length === 1 ? "file" : "files"})</small></h3>{evidence.length ? <div className="evidence-list">{evidence.map(item => <EvidencePreview key={item.id} evidence={item}/>)}</div> : <p className="no-evidence">No evidence was attached to this complaint.</p>}</div><div className="detail-section"><h3>Review decision</h3><p className="action-note">Choose Cancel or Approve to review this complaint.</p></div><div className="admin-actions"><button className="outline-button" type="button" onClick={() => setConfirmAction("cancelled")} disabled={submitting || String(report.status).toLowerCase() === "cancelled"}>Cancel complaint</button><button className="primary-button" type="button" onClick={() => setConfirmAction("approved")} disabled={submitting || String(report.status).toLowerCase() === "approved"}>{submitting ? "Saving..." : "Approve complaint"}</button></div>{confirmAction && <ReviewWarningDialog action={confirmAction} subject="complaint" note={note} setNote={setNote} submitting={submitting} close={() => { setConfirmAction(null); setNote(""); }} confirm={() => review(confirmAction)} />}</aside>;
+}
+
+function ReviewWarningDialog({ action, subject, note = "", setNote, submitting, close, confirm }) {
+  const isCancellation = action === "cancelled";
+  return <div className="review-warning-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><section className="review-warning-dialog" role="dialog" aria-modal="true" aria-label={`Confirm ${isCancellation ? "cancellation" : "approval"}`}><span className={`review-warning-icon ${isCancellation ? "danger" : "approve"}`}>!</span><h3>{isCancellation ? `Cancel this ${subject}?` : `Approve this ${subject}?`}</h3><p>{isCancellation ? `This ${subject} will be marked as cancelled and will not be published.` : `This ${subject} will be approved and made available according to the review rules.`}</p>{isCancellation && setNote && <label className="review-warning-note">Cancellation reason<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Explain why this should be cancelled..." rows="3" required /></label>}<div className="review-warning-actions"><button className="outline-button" type="button" onClick={close} disabled={submitting}>Go back</button><button className={isCancellation ? "danger-button" : "primary-button"} type="button" onClick={confirm} disabled={submitting || (isCancellation && !note.trim())}>{submitting ? "Saving..." : `Confirm ${isCancellation ? "cancellation" : "approval"}`}</button></div></section></div>;
 }
 
 function CommunityPostComposer({ close, notify, onSuccess }) {

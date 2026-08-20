@@ -491,6 +491,16 @@
     color: #b6382f
 }
 
+.status.approved {
+    background: #eafaf0;
+    color: var(--green)
+}
+
+.status.cancelled {
+    background: #fdeceb;
+    color: #b6382f
+}
+
 .status.forwarded {
     background: #eef2ff;
     color: #3656d6
@@ -1717,6 +1727,225 @@
 
 .review-confirm-actions>* {
     flex: 1
+}
+
+.post-review-section {
+    margin-top: 18px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden
+}
+
+.post-review-section .queue-toolbar {
+    align-items: flex-start;
+    gap: 18px
+}
+
+.post-review-section .queue-toolbar h2 {
+    margin-bottom: 5px
+}
+
+.review-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end
+}
+
+.review-filters button {
+    border: 1px solid #d8e1db;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--muted);
+    padding: 7px 10px;
+    font-size: 11px;
+    font-weight: 700
+}
+
+.review-filters button.active {
+    border-color: var(--green);
+    background: #edf6f1;
+    color: var(--green)
+}
+
+.review-filters span {
+    margin-left: 3px;
+    opacity: .7
+}
+
+.post-review-list {
+    display: grid
+}
+
+.post-review-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 17px;
+    border-top: 1px solid var(--line)
+}
+
+.post-review-copy {
+    min-width: 0;
+    flex: 1
+}
+
+.post-review-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px
+}
+
+.post-review-heading strong,
+.post-review-heading small {
+    display: block
+}
+
+.post-review-heading small {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 3px
+}
+
+.post-review-copy .topic-tag {
+    display: inline-flex;
+    margin-top: 9px
+}
+
+.post-review-copy p {
+    margin: 8px 0 0;
+    color: #526057;
+    font-size: 12px;
+    line-height: 1.55
+}
+
+.post-review-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 82px
+}
+
+.post-review-actions button {
+    padding: 9px 10px;
+    font-size: 11px
+}
+
+.post-cancel-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: #14261c88
+}
+
+.post-cancel-dialog {
+    width: min(100%, 390px);
+    padding: 24px;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 20px 70px #0003
+}
+
+.post-cancel-dialog h3 {
+    margin: 0 0 8px;
+    font: 700 20px "Playfair Display", serif
+}
+
+.post-cancel-dialog p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5
+}
+
+.post-cancel-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px
+}
+
+.review-warning-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: #14261c88
+}
+
+.review-warning-dialog {
+    width: min(100%, 430px);
+    padding: 26px;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 20px 70px #0003
+}
+
+.review-warning-icon {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 50%;
+    font-weight: 800;
+    font-size: 18px
+}
+
+.review-warning-icon.danger {
+    background: #fdeceb;
+    color: #b6382f
+}
+
+.review-warning-icon.approve {
+    background: #eafaf0;
+    color: var(--green)
+}
+
+.review-warning-dialog h3 {
+    margin: 14px 0 8px;
+    font: 700 21px "Playfair Display", serif
+}
+
+.review-warning-dialog>p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55
+}
+
+.review-warning-note {
+    display: block;
+    margin-top: 17px;
+    color: #385247;
+    font-size: 12px;
+    font-weight: 700
+}
+
+.review-warning-note textarea {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 10px;
+    border: 1px solid #d8e1db;
+    border-radius: 8px;
+    resize: vertical;
+    font: inherit;
+    font-size: 12px;
+    outline-color: var(--green)
+}
+
+.review-warning-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px
 }
 
 .danger-button {
